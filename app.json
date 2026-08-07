@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "let's talk Pro v 2.11",
+    "slug": "lets-talk-pro",
+    "version": "2.11.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "android": {
+      "package": "com.lestalk.pro"
+    }
+  }
+}
