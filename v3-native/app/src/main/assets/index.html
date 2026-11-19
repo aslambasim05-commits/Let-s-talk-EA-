@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#05070B">
+<title>LET'S TALK PRO — V3</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div id="app">
+
+  <header class="hud">
+    <div class="brand">
+      <span class="t1">LET'S</span><span class="t2">TALK</span><span class="ver">PRO V3</span>
+    </div>
+    <div class="hud-right">
+      <span class="clock" id="clock">--:--:--</span>
+      <div class="link" id="linkBtn"><i></i><span id="linkTxt">LIVE</span></div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ============ TERMINAL ============ -->
+    <section class="tab active" id="tab-terminal">
+      <div class="sym-bar">
+        <div class="sym-left">
+          <div class="sym-name" id="pairName">BTC<span>/USDT</span><span class="chev">▾</span></div>
+          <div class="price" id="bigPrice">—</div>
+          <div class="chg" id="bigChg">—</div>
+        </div>
+        <div class="sym-right">
+          <div class="stat"><b id="h24">—</b><span>24H HI</span></div>
+          <div class="stat"><b id="l24">—</b><span>24H LO</span></div>
+          <div class="stat"><b id="vol24">—</b><span>VOL</span></div>
+        </div>
+      </div>
+
+      <div class="tf-row" id="tfRow"></div>
+
+      <div class="chart-wrap">
+        <canvas id="chart"></canvas>
+        <div class="chart-glow"></div>
+        <div class="scanline"></div>
+        <div class="legend" id="legend"></div>
+        <div class="loading-veil" id="veil">
+          <div class="radar"></div>
+          <span id="veilTxt">ESTABLISHING UPLINK</span>
+        </div>
+      </div>
+
+      <div class="tape">
+        <div class="tape-head">
+          <span>TAPE · LIVE TRADES</span>
+          <b id="latency">— MS</b>
+        </div>
+        <div class="tape-rows" id="tapeRows"></div>
+      </div>
+    </section>
+
+    <!-- ============ MARKETS ============ -->
+    <section class="tab" id="tab-markets">
+      <div class="pad">
+        <div class="sec-title"><span>MARKETS · USDT</span><em id="mktCount">—</em></div>
+        <label class="search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+          <input id="mktSearch" placeholder="SEARCH PAIR" autocomplete="off" spellcheck="false">
+        </label>
+      </div>
+      <div class="list" id="mktList"></div>
+    </section>
+
+    <!-- ============ INDICATORS ============ -->
+    <section class="tab" id="tab-ind">
+      <div class="pad" style="padding-bottom:0">
+        <div class="sec-title"><span>INDICATOR ENGINE</span><em id="indCount">—</em></div>
+        <label class="search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+          <input id="indSearch" placeholder="SEARCH INDICATORS" autocomplete="off" spellcheck="false">
+        </label>
+      </div>
+      <div class="chips" id="indCats"></div>
+      <div class="list" id="indList"></div>
+    </section>
+
+    <!-- ============ SYSTEM ============ -->
+    <section class="tab" id="tab-sys">
+      <div class="list" style="padding-top:12px">
+        <div class="card">
+          <h4>UPLINK</h4>
+          <div class="row"><div class="k">Data provider<small>automatic failover chain</small></div><div class="v" id="sysProvider">—</div></div>
+          <div class="row"><div class="k">Latency<small>event → render</small></div><div class="v" id="sysLatency">—</div></div>
+          <div class="row"><div class="k">Socket</div><div class="v" id="sysSocket">—</div></div>
+          <div class="row"><div class="k">Candles buffered</div><div class="v" id="sysCandles">—</div></div>
+        </div>
+
+        <div class="card">
+          <h4>INDICATOR ENGINE</h4>
+          <div class="row"><div class="k">Catalogue</div><div class="v" id="sysInd">—</div></div>
+          <div class="row"><div class="k">Active on chart</div><div class="v" id="sysActive">0</div></div>
+          <div class="row"><div class="k">Oscillator panes<small>max 2 rendered at once</small></div><div class="v" id="sysOsc">0</div></div>
+        </div>
+
+        <div class="card">
+          <h4>DISPLAY</h4>
+          <div class="row"><div class="k">Accent<small>interface tint</small></div><div class="swatches" id="swatches"></div></div>
+          <div class="row"><div class="k">Haptic ticks<small>vibrate on price change</small></div><div class="v" id="sysHaptic" style="cursor:pointer">OFF</div></div>
+        </div>
+
+        <div class="card">
+          <h4>MAINTENANCE</h4>
+          <button class="btn ghost" id="btnReconnect">RECONNECT UPLINK</button>
+          <button class="btn" id="btnClearInd" style="margin-top:8px">CLEAR ALL INDICATORS</button>
+        </div>
+
+        <div class="card">
+          <h4>ABOUT</h4>
+          <div class="about">
+            <b>LET'S TALK PRO V3</b> · real-time crypto terminal.<br>
+            Live trades and candles streamed over WebSocket; indicators are computed on-device.<br><br>
+            Data: Binance · Binance Vision · Bybit.<br>
+            Not investment advice. Market data may be delayed or interrupted.
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <nav class="dock">
+    <button class="dock-btn on" data-tab="terminal">
+      <svg viewBox="0 0 24 24"><path d="M7 4v5M7 15v5M17 4v3M17 13v7"></path><rect x="4.5" y="9" width="5" height="6" rx="1"></rect><rect x="14.5" y="7" width="5" height="6" rx="1"></rect></svg>
+      <span>TERMINAL</span>
+    </button>
+    <button class="dock-btn" data-tab="markets">
+      <svg viewBox="0 0 24 24"><path d="M4 18l5-5 3 3 7-8"></path><path d="M15 8h4v4"></path></svg>
+      <span>MARKETS</span>
+    </button>
+    <button class="dock-btn" data-tab="ind">
+      <svg viewBox="0 0 24 24"><path d="M3 12h3l2-6 3 12 3-9 2 5 2-3h3"></path></svg>
+      <span>INDICATORS</span>
+    </button>
+    <button class="dock-btn" data-tab="sys">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"></path></svg>
+      <span>SYSTEM</span>
+    </button>
+  </nav>
+
+</div>
+
+<div class="sheet-veil" id="sheetVeil"></div>
+<div class="sheet" id="sheet">
+  <div class="grab"></div>
+  <h3 id="sheetTitle">UPLINK STATUS</h3>
+  <div class="sub" id="sheetSub">REAL-TIME FEED DIAGNOSTICS</div>
+  <div id="sheetBody"></div>
+  <button class="btn ghost" id="sheetBtn">RECONNECT STREAM</button>
+</div>
+
+<script src="js/indicators.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/feed.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
