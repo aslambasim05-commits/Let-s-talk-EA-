@@ -2,14 +2,19 @@ package com.lestalk.pro;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.content.Context;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.WindowManager;
 import android.webkit.ConsoleMessage;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -20,6 +25,7 @@ import android.widget.FrameLayout;
 public class MainActivity extends Activity {
 
     private static final String TAG = "LetsTalkPro";
+    private static final String CH = "alerts";
     private WebView web;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -98,7 +104,47 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
 
+        web.addJavascriptInterface(this, "Android");
         web.loadUrl("file:///android_asset/index.html");
+    }
+
+    /* ------------------------- JS bridge: notifications ------------------------- */
+
+    @JavascriptInterface
+    public boolean notifGranted() {
+        return Build.VERSION.SDK_INT < 33
+                || checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @JavascriptInterface
+    public void reqNotif() {
+        runOnUiThread(() -> {
+            if (Build.VERSION.SDK_INT >= 33) {
+                requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 41);
+            }
+        });
+    }
+
+    @JavascriptInterface
+    public void notify(String title, String body) {
+        runOnUiThread(() -> {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            if (Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(new NotificationChannel(CH, "Trading alerts", NotificationManager.IMPORTANCE_HIGH));
+            }
+            Notification.Builder b = Build.VERSION.SDK_INT >= 26
+                    ? new Notification.Builder(this, CH)
+                    : new Notification.Builder(this);
+            b.setSmallIcon(android.R.drawable.stat_notify_sync)
+                    .setContentTitle(title == null ? "Let's Talk Pro" : title)
+                    .setContentText(body == null ? "" : body)
+                    .setAutoCancel(true);
+            if (Build.VERSION.SDK_INT < 26) b.setPriority(Notification.PRIORITY_HIGH);
+            if (Build.VERSION.SDK_INT < 33 || notifGranted()) {
+                nm.notify((int) (System.currentTimeMillis() % 100000), b.build());
+            }
+        });
     }
 
     @Override

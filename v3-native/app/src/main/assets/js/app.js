@@ -56,6 +56,7 @@
     active: store.get('active', ['ema_21', 'bb_20', 'rsi_14']),
     accent: store.get('accent', 'cyan'),
     haptic: store.get('haptic', false),
+    notif: store.get('notif', false),
     tab: 'terminal',
     cat: 'ALL',
     mq: '',
@@ -64,6 +65,11 @@
     digits: 2,
     lastTicker: null
   };
+
+  var pos = store.get('pos', null);         // {symbol, dir, entry, sl, tp, rr}
+  var ranks = {};                            // id -> {wr, trades}
+  var rankSort = false;
+  var ranking = false;
 
   var chart = null;
   var feed = null;
@@ -114,6 +120,159 @@
   }
 
   function baseOf(sym) { return sym.replace(/USDT$/, ''); }
+
+  /* ------------------------- notifications ------------------------- */
+  function notify(title, body) {
+    toast(title + (body ? ' · ' + body : ''));
+    if (state.haptic && navigator.vibrate) { try { navigator.vibrate([70, 40, 70]); } catch (e) {} }
+    try {
+      if (window.Android && window.Android.notify) { window.Android.notify(String(title), String(body || '')); return; }
+      if (state.notif && 'Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, { body: body || '' });
+      }
+    } catch (e) {}
+  }
+
+  function refreshNotifLabel() {
+    $('sysNotif').textContent = state.notif ? 'ON' : 'OFF';
+    $('sysNotif').classList.toggle('on', !!state.notif);
+  }
+
+  function toggleNotif() {
+    if (state.notif) {
+      state.notif = false;
+      store.set('notif', false);
+      refreshNotifLabel();
+      toast('NOTIFICATIONS OFF');
+      return;
+    }
+    var granted = false;
+    try {
+      if (window.Android && window.Android.reqNotif) window.Android.reqNotif();
+      if (window.Android && window.Android.notifGranted) granted = !!window.Android.notifGranted();
+    } catch (e) {}
+    if (granted) {
+      state.notif = true;
+      store.set('notif', true);
+      refreshNotifLabel();
+      notify('ALERTS ON', 'TP / SL notifications enabled');
+      return;
+    }
+    if ('Notification' in window) {
+      try {
+        Notification.requestPermission().then(function (p) {
+          state.notif = p === 'granted';
+          store.set('notif', state.notif);
+          refreshNotifLabel();
+          if (state.notif) notify('ALERTS ON', 'TP / SL notifications enabled');
+          else toast('PERMISSION DENIED');
+        });
+      } catch (e) { toast('NOTIFICATIONS NOT SUPPORTED'); }
+    } else {
+      state.notif = false;
+      refreshNotifLabel();
+      toast('NOTIFICATIONS NOT SUPPORTED HERE');
+    }
+  }
+
+  /* ------------------------- position (TP/SL) ------------------------- */
+  function posATR14() {
+    var c = feed && feed.candles ? feed.candles : [], n = c.length;
+    if (n < 15) return null;
+    var s = 0, i;
+    for (i = n - 14; i < n; i++) {
+      s += Math.max(c[i].h - c[i].l, Math.abs(c[i].h - c[i - 1].c), Math.abs(c[i].l - c[i - 1].c));
+    }
+    return s / 14;
+  }
+
+  function renderPos() {
+    var open = pos && pos.symbol === state.symbol && pos.entry;
+    if (chart) chart.setPosition(open ? pos : null);
+    var chip = $('posChip');
+    if (!chip) return;
+    if (!open) { chip.textContent = ''; chip.className = 'pos-chip'; return; }
+    var p = feed.price || pos.entry;
+    var sgn = pos.dir === 'LONG' ? 1 : -1;
+    var pnl = (p - pos.entry) / pos.entry * 100 * sgn;
+    chip.className = 'pos-chip on ' + (pnl >= 0 ? 'up' : 'dn');
+    chip.textContent = pos.dir + ' ' + fmtP(pos.entry) + '  ·  TP ' + fmtP(pos.tp) + '  ·  SL ' + fmtP(pos.sl) + '  ·  PNL ' + fmtPct(pnl);
+  }
+
+  function checkPos(c) {
+    if (!pos || pos.symbol !== state.symbol || !pos.entry) return;
+    var hit = null;
+    if (pos.dir === 'LONG') {
+      if (c.l <= pos.sl) hit = 'SL';
+      else if (c.h >= pos.tp) hit = 'TP';
+    } else {
+      if (c.h >= pos.sl) hit = 'SL';
+      else if (c.l <= pos.tp) hit = 'TP';
+    }
+    if (!hit) return;
+    var sgn = pos.dir === 'LONG' ? 1 : -1;
+    var pnl = (hit === 'TP' ? Math.abs(pos.tp - pos.entry) : -Math.abs(pos.sl - pos.entry)) / pos.entry * 100;
+    notify(hit + ' HIT · ' + baseOf(state.symbol), fmtPct(pnl) + ' @ ' + fmtP(hit === 'TP' ? pos.tp : pos.sl));
+    pos = null;
+    store.set('pos', null);
+    renderPos();
+  }
+
+  function openPosSheet() {
+    var draft = { dir: pos && pos.dir === 'SHORT' ? 'SHORT' : 'LONG', rr: (pos && pos.rr) || 2, risk: 'atr1' };
+    sheetOpen = true;
+    $('sheetTitle').textContent = 'POSITION ENTRY';
+    $('sheetSub').textContent = 'TP / SL SETUP · DEFAULT 1:2 RR';
+    var body = $('sheetBody');
+    function paint() {
+      var p = feed.price || 0, atr = posATR14();
+      var dist = draft.risk === 'atr1' ? (atr || 0) : draft.risk === 'atr2' ? (atr || 0) * 2 : p * (parseFloat(draft.risk) / 100);
+      var sgn = draft.dir === 'LONG' ? 1 : -1;
+      var sl = p - sgn * dist, tp = p + sgn * dist * draft.rr;
+      body.innerHTML =
+        '<div class="kv"><span>MARK</span><b>' + fmtP(p) + '</b></div>' +
+        (atr ? '<div class="kv"><span>ATR 14</span><b>' + fmtP(atr, state.digits) + '</b></div>' : '') +
+        '<div class="pos-grid">' +
+        '<button class="pg ' + (draft.dir === 'LONG' ? 'on up' : '') + '" data-k="dir" data-v="LONG">LONG</button>' +
+        '<button class="pg ' + (draft.dir === 'SHORT' ? 'on dn' : '') + '" data-k="dir" data-v="SHORT">SHORT</button>' +
+        '</div>' +
+        '<div class="pos-lbl">RISK REWARD</div><div class="pos-grid four">' +
+        [1, 1.5, 2, 3].map(function (r) { return '<button class="pg ' + (draft.rr === r ? 'on' : '') + '" data-k="rr" data-v="' + r + '">1:' + r + '</button>'; }).join('') +
+        '</div>' +
+        '<div class="pos-lbl">STOP DISTANCE</div><div class="pos-grid four">' +
+        [['atr1', 'ATR ×1'], ['atr2', 'ATR ×2'], ['0.5', '0.5%'], ['1', '1%']].map(function (o) {
+          return '<button class="pg ' + (draft.risk === o[0] ? 'on' : '') + '" data-k="risk" data-v="' + o[0] + '">' + o[1] + '</button>';
+        }).join('') +
+        '</div>' +
+        '<div class="kv"><span>EST. STOP LOSS</span><b style="color:var(--down)">' + fmtP(sl) + ' (' + fmtPct(-dist / p * 100 * sgn * sgn) + ')</b></div>' +
+        '<div class="kv"><span>EST. TAKE PROFIT</span><b style="color:var(--up)">' + fmtP(tp) + ' (+' + (dist * draft.rr / p * 100).toFixed(2) + '%)</b></div>' +
+        (pos && pos.symbol === state.symbol ? '<button class="btn ghost" id="posClose" style="margin-top:10px">CLOSE POSITION</button>' : '');
+      body.querySelectorAll('.pg').forEach(function (b) {
+        b.onclick = function () {
+          var k = b.getAttribute('data-k'), v = b.getAttribute('data-v');
+          draft[k] = k === 'rr' ? parseFloat(v) : v;
+          paint();
+        };
+      });
+      var pc = $('posClose');
+      if (pc) pc.onclick = function () {
+        pos = null; store.set('pos', null); renderPos(); closeSheet();
+        toast('POSITION CLOSED');
+      };
+      $('sheetBtn').textContent = 'PLACE ENTRY @ MARKET';
+      $('sheetBtn').onclick = function () {
+        if (!p) return;
+        pos = { symbol: state.symbol, dir: draft.dir, entry: p, sl: sl, tp: tp, rr: draft.rr };
+        store.set('pos', pos);
+        renderPos();
+        closeSheet();
+        notify('ENTRY PLACED · ' + draft.dir, baseOf(state.symbol) + ' @ ' + fmtP(p));
+      };
+    }
+    paint();
+    $('sheetVeil').classList.add('on');
+    $('sheet').classList.add('on');
+  }
 
   /* ------------------------------- toast ------------------------------- */
   var toastTimer = null;
@@ -285,9 +444,9 @@
     link.className = 'link';
     if (st.status === 'live') { txt.textContent = 'LIVE'; veil(false); }
     else if (st.status === 'connecting' || st.status === 'loading') { txt.textContent = 'LINKING'; link.classList.add('warn'); veil(true, 'ESTABLISHING UPLINK'); }
-    else if (st.status === 'failover') { txt.textContent = 'FAILOVER'; link.classList.add('warn'); toast('FAILOVER · ' + st.provider); }
+    else if (st.status === 'failover') { txt.textContent = 'FAILOVER'; link.classList.add('warn'); toast('FAILOVER · ' + st.provider); notify('FAILOVER', st.provider + ' uplink'); }
     else if (st.status === 'unstable') { txt.textContent = 'UNSTABLE'; link.classList.add('warn'); }
-    else { txt.textContent = 'OFFLINE'; link.classList.add('bad'); veil(true, 'UPLINK LOST · RETRYING'); }
+    else { txt.textContent = 'OFFLINE'; link.classList.add('bad'); veil(true, 'UPLINK LOST · RETRYING'); notify('UPLINK LOST', 'reconnecting ' + state.symbol); }
 
     $('sysProvider').textContent = st.provider || '—';
     $('sysSocket').textContent = st.status.toUpperCase();
@@ -421,6 +580,7 @@
         if (cats.indexOf(e.cat) < 0) cats.push(e.cat);
       });
     }
+    if (Object.keys(ranks).length) cats.unshift('BEST');
     var el = $('indCats');
     el.innerHTML = '';
     cats.forEach(function (c) {
@@ -437,6 +597,47 @@
     });
   }
 
+  /* ------------------------------ win-rate ranks ------------------------------ */
+  function runRanks() {
+    if (ranking) return;
+    if (!catalogReady || !window.STATS) { toast('RANKER NOT READY'); return; }
+    if (!feed.candles || feed.candles.length < 40) { toast('WAIT FOR DATA'); return; }
+    ranking = true;
+    ranks = {};
+    var candles = feed.candles, cats = IND.CATALOG, i = 0, t0 = Date.now();
+    $('rankProg').textContent = 'ANALYZING 0%';
+    function step() {
+      var n = 0;
+      while (i < cats.length && n < 40) {
+        try {
+          var r = STATS.backtest(cats[i], candles, { rr: 2 });
+          if (r) ranks[cats[i].id] = r;
+        } catch (e) {}
+        i++; n++;
+      }
+      $('rankProg').textContent = 'ANALYZING ' + Math.min(100, Math.round(i / cats.length * 100)) + '%';
+      if (i < cats.length) { setTimeout(step, 0); return; }
+      ranking = false;
+      var ms = Date.now() - t0;
+      var best = Object.keys(ranks).sort(function (a, b) { return ranks[b].wr - ranks[a].wr; });
+      $('rankProg').textContent = 'DONE · ' + ms + ' MS · ' + best.length + ' RANKED';
+      rankSort = true;
+      if (state.cat === 'ALL') state.cat = 'BEST';
+      buildCats();
+      renderIndList();
+      toast('TOP: ' + best.slice(0, 3).map(function (id) {
+        return (byId[id] ? byId[id].short : id) + ' ' + ranks[id].wr.toFixed(0) + '%';
+      }).join(' · '));
+    }
+    step();
+  }
+
+  function wrBadge(en) {
+    var r = ranks[en.id];
+    if (!r) return '';
+    return '<div class="wr ' + (r.wr >= 50 ? 'hi' : 'lo') + '">' + r.wr.toFixed(0) + '%<span>' + r.trades + 'T</span></div>';
+  }
+
   function renderIndList() {
     var list = $('indList');
     if (!catalogReady) {
@@ -445,11 +646,24 @@
     }
     var q = state.iq.trim().toLowerCase();
     var out = [];
-    for (var i = 0; i < IND.CATALOG.length && out.length < state.indLimit; i++) {
-      var e = IND.CATALOG[i];
-      if (state.cat !== 'ALL' && e.cat !== state.cat) continue;
-      if (q && (e.name.toLowerCase().indexOf(q) < 0 && e.id.indexOf(q) < 0 && (e.short || '').toLowerCase().indexOf(q) < 0)) continue;
-      out.push(e);
+    if (state.cat === 'BEST') {
+      var ids = Object.keys(ranks).sort(function (a, b) { return ranks[b].wr - ranks[a].wr; });
+      for (var k = 0; k < ids.length && out.length < state.indLimit; k++) {
+        var be = byId[ids[k]];
+        if (!be) continue;
+        if (q && (be.name.toLowerCase().indexOf(q) < 0 && be.id.indexOf(q) < 0 && (be.short || '').toLowerCase().indexOf(q) < 0)) continue;
+        out.push(be);
+      }
+    } else {
+      for (var i = 0; i < IND.CATALOG.length && out.length < state.indLimit; i++) {
+        var e = IND.CATALOG[i];
+        if (state.cat !== 'ALL' && e.cat !== state.cat) continue;
+        if (q && (e.name.toLowerCase().indexOf(q) < 0 && e.id.indexOf(q) < 0 && (e.short || '').toLowerCase().indexOf(q) < 0)) continue;
+        out.push(e);
+      }
+      if (rankSort && Object.keys(ranks).length) {
+        out.sort(function (a, b) { return (ranks[b.id] ? ranks[b.id].wr : -1) - (ranks[a.id] ? ranks[a.id].wr : -1); });
+      }
     }
     var html = '';
     for (i = 0; i < out.length; i++) {
@@ -459,13 +673,14 @@
       html += '<div class="irow' + (on ? ' on' : '') + '" data-id="' + en.id + '">' +
         '<i class="bar" style="background:' + (on ? col : '') + '"></i>' +
         '<div class="nm"><b>' + en.name + '</b><span>' + en.cat.toUpperCase() + ' · ' + (en.pane === 'osc' ? 'SUB-PANE' : 'OVERLAY') + '</span></div>' +
+        wrBadge(en) +
         '<div class="tgl">' + (on ? '✓' : '+') + '</div></div>';
     }
-    var matches = countMatches();
+    var matches = state.cat === 'BEST' ? Object.keys(ranks).length : countMatches();
     if (out.length < matches) {
       html += '<div class="more-row" id="moreRow"><div class="nm"><b>LOAD MORE</b><span>' + out.length + ' / ' + matches + '</span></div></div>';
     }
-    if (!out.length) html = '<div class="empty">NO MATCH</div>';
+    if (!out.length) html = '<div class="empty">NO MATCH — TAP RANK BY WIN RATE FIRST</div>';
     list.innerHTML = html;
 
     var rows = list.querySelectorAll('.irow[data-id]');
@@ -505,6 +720,19 @@
   }
   function fillSheet() {
     var st = feed.status;
+    $('sheetTitle').textContent = 'UPLINK STATUS';
+    $('sheetSub').textContent = 'REAL-TIME FEED DIAGNOSTICS';
+    $('sheetBtn').textContent = 'RECONNECT STREAM';
+    $('sheetBtn').onclick = function () {
+      closeSheet();
+      toast('RECONNECTING UPLINK');
+      feed.retries = 0;
+      feed.destroy();
+      feed = new Feed();
+      bindFeed();
+      feed.load(state.symbol, state.tf, 500);
+      feed.startMarkets(PAIRS.map(function (p) { return p.s; }));
+    };
     $('sheetBody').innerHTML =
       '<div class="kv"><span>PROVIDER</span><b>' + feed.provider().label + '</b></div>' +
       '<div class="kv"><span>STATE</span><b>' + st.toUpperCase() + '</b></div>' +
@@ -550,12 +778,15 @@
     syncPrice();
     veil(false);
     recompute();
+    renderPos();
     $('sysCandles').textContent = String(list.length);
   }
 
   function onCandle(c) {
     chart.setCandles(feed.candles, true);
     syncPrice();
+    checkPos(c);
+    renderPos();
     scheduleInd();
     if (state.haptic && navigator.vibrate && Date.now() - (state._lastVib || 0) > 900) {
       state._lastVib = Date.now();
@@ -575,6 +806,7 @@
     chart.setMeta({ symbol: sym });
     feed.switchSymbol(sym);
     renderMarkets();
+    renderPos();
     switchTab('terminal');
   }
 
@@ -666,6 +898,22 @@
     };
     $('sysHaptic').textContent = state.haptic ? 'ON' : 'OFF';
 
+    // notifications toggle
+    $('sysNotif').onclick = toggleNotif;
+    try {
+      if (window.Android && window.Android.notifGranted && window.Android.notifGranted() && state.notif === false && store.get('notif', null) === null) {
+        state.notif = true;
+        store.set('notif', true);
+      }
+    } catch (e) {}
+    refreshNotifLabel();
+
+    // position (TP/SL) entry
+    $('posBtn').onclick = openPosSheet;
+
+    // win-rate ranker
+    $('btnRanks').onclick = runRanks;
+
     // clock
     setInterval(function () {
       var d = new Date();
@@ -696,6 +944,20 @@
     if (sheetOpen) { closeSheet(); return 1; }
     if (state.tab !== 'terminal') { switchTab('terminal'); return 1; }
     return 0;
+  };
+
+  // minimal debug/testing surface
+  window.LTP = {
+    candles: function () { return feed ? feed.candles : []; },
+    chart: function () { return chart; },
+    testHit: function (c) { checkPos(c); return pos; },
+    place: function (dir, dist, rr) {
+      var p = feed.price; if (!p) return null;
+      var s = dir === 'LONG' ? 1 : -1;
+      pos = { symbol: state.symbol, dir: dir, entry: p, sl: p - s * dist, tp: p + s * dist * (rr || 2), rr: rr || 2 };
+      store.set('pos', pos); renderPos();
+      return pos;
+    }
   };
 
   document.addEventListener('DOMContentLoaded', start);

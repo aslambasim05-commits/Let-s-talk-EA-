@@ -55,6 +55,12 @@
     this.invalidate();
   };
 
+  /* position overlay: {dir:'LONG'|'SHORT', entry, sl, tp, rr} or null */
+  Chart.prototype.setPosition = function (pos) {
+    this.pos = pos || null;
+    this.invalidate();
+  };
+
   Chart.prototype.setCandles = function (list, keepView) {
     var first = this.candles.length === 0;
     var atRight = this.view.end >= this.candles.length - 0.001;
@@ -315,6 +321,47 @@
       ctx.fillStyle = '#04121A';
       ctx.textAlign = 'left';
       ctx.fillText(label, px0 + 5, lp + 3.4);
+    }
+
+    // ---- position overlay (ENTRY / TP / SL)
+    if (this.pos && this.pos.entry) {
+      var ps = this.pos, pr0 = L.rects[0];
+      var px0 = L.x0, px1 = L.x1;
+      var pey = py(ps.entry), pty = py(ps.tp), psy = py(ps.sl);
+      ctx.save();
+      ctx.beginPath(); ctx.rect(px0, pr0.y0, px1 - px0, pr0.y1 - pr0.y0); ctx.clip();
+      // shaded zones
+      ctx.fillStyle = 'rgba(0,240,160,0.055)';
+      ctx.fillRect(px0, Math.min(pey, pty), px1 - px0, Math.abs(pty - pey));
+      ctx.fillStyle = 'rgba(255,59,92,0.055)';
+      ctx.fillRect(px0, Math.min(pey, psy), px1 - px0, Math.abs(psy - pey));
+      // dashed lines
+      var hline = function (y, col, dash) {
+        ctx.save(); ctx.setLineDash(dash || [5, 4]); ctx.strokeStyle = col; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(px0, Math.round(y) + .5); ctx.lineTo(px1, Math.round(y) + .5); ctx.stroke();
+        ctx.restore();
+      };
+      hline(pey, 'rgba(233,241,255,0.75)', [4, 4]);
+      hline(pty, 'rgba(0,240,160,0.85)');
+      hline(psy, 'rgba(255,59,92,0.85)');
+      // right-edge labels
+      var self = this;
+      var tag = function (y, col, txt) {
+        var yy = Math.max(pr0.y0 + 9, Math.min(pr0.y1 - 9, y));
+        ctx.font = '700 8.5px ui-monospace, monospace';
+        var tw = ctx.measureText(txt).width + 10;
+        var tx = px1 - tw - 3;
+        ctx.fillStyle = col;
+        self._roundRect(ctx, tx, yy - 7, tw, 14, 3);
+        ctx.fill();
+        ctx.fillStyle = '#04121A';
+        ctx.textAlign = 'left';
+        ctx.fillText(txt, tx + 5, yy + 3);
+      };
+      tag(pty, 'rgba(0,240,160,0.95)', 'TP ' + this._fmtPrice(ps.tp) + ' +' + ((Math.abs(ps.tp - ps.entry) / ps.entry) * 100).toFixed(2) + '%');
+      tag(psy, 'rgba(255,59,92,0.95)', 'SL ' + this._fmtPrice(ps.sl) + ' -' + ((Math.abs(ps.sl - ps.entry) / ps.entry) * 100).toFixed(2) + '%');
+      tag(pey, 'rgba(233,241,255,0.9)', (ps.dir || 'LONG') + ' ' + this._fmtPrice(ps.entry));
+      ctx.restore();
     }
 
     // ---- oscillator panes
